@@ -78,7 +78,7 @@ MIT License。詳細はリポジトリルートの [LICENSE](LICENSE) を参照�
 ## 同梱サードパーティ
 
 - `Editor/LODGenerator/ThirdParty/UnityMeshSimplifier` — [UnityMeshSimplifier](https://github.com/Whinarn/UnityMeshSimplifier)
-  (MIT License, Copyright (c) 2017-2020 Mattias Edlund)。ライセンス全文は同フォルダの LICENSE.md を参照。
+  (MIT License, Copyright (c) 2017-2021 Mattias Edlund)。ライセンス全文は同フォルダの LICENSE.md を参照。
 
 ---
 
