@@ -47,7 +47,7 @@ VRChat Worlds SDK 3.10.x / UdonSharp 同梱版で動作確認を想定。
 ```
 PickupKit/
   Editor/
-    PickupSetupWindow.cs     # 一括設定ウィンドウ（メニュー: you5248/Pickup Kit/Pickup 一括設定）
+    PickupSetupWindow.cs     # 一括設定ウィンドウ（メニュー: you5248/Pickup Kit）
   Scripts/
     PickupReturnTarget.cs    # 各ピックアップの原点記憶＋戻り（自己完結・自前tick）
     PickupReturnManager.cs   # 【任意・非必須】旧・中央巡回の名残。無くても動く（削除可）
