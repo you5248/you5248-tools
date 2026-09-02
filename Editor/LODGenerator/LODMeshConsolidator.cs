@@ -1,0 +1,310 @@
+﻿using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
+using UnityEngine;
+
+namespace you5248.LODGenerator
+{
+    public class DuplicateLODGroup
+    {
+        public string meshName;
+        public int vertexCount;
+        public Mesh keepMesh;
+        public string keepAssetPath;
+        public int keepRendererCount;
+        public List<DuplicateAsset> duplicates = new List<DuplicateAsset>();
+
+        public int TotalAssetCount => 1 + duplicates.Count;
+
+        public int DuplicateRendererCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var d in duplicates) n += d.renderers.Count;
+                return n;
+            }
+        }
+    }
+
+    public class DuplicateAsset
+    {
+        public Mesh mesh;
+        public string assetPath;
+        public List<Renderer> renderers = new List<Renderer>();
+    }
+
+    public class OrphanedLODAsset
+    {
+        public string assetPath;
+        public string meshName;
+    }
+
+    /// <summary>
+    /// Scans the scene for duplicate LOD mesh assets and consolidates them
+    /// into shared references, reducing build size.
+    /// Also detects orphaned LOD assets unreferenced by any scene renderer.
+    /// </summary>
+    public static class LODMeshConsolidator
+    {
+        public static List<DuplicateLODGroup> Scan()
+        {
+            var groupMap = new Dictionary<string, Dictionary<string, ScanEntry>>();
+
+            foreach (var mf in Object.FindObjectsOfType<MeshFilter>(true))
+            {
+                var r = mf.GetComponent<Renderer>();
+                if (r != null) Collect(groupMap, mf.sharedMesh, r);
+            }
+            foreach (var smr in Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
+            {
+                Collect(groupMap, smr.sharedMesh, smr);
+            }
+
+            var result = new List<DuplicateLODGroup>();
+            foreach (var kvp in groupMap)
+            {
+                var assetMap = kvp.Value;
+                if (assetMap.Count <= 1) continue;
+
+                var entries = new List<ScanEntry>(assetMap.Values);
+                entries.Sort((a, b) => b.renderers.Count.CompareTo(a.renderers.Count));
+
+                var keep = entries[0];
+                string canonical = GetCanonicalLODName(keep.mesh, keep.assetPath) ?? keep.mesh.name;
+                var group = new DuplicateLODGroup
+                {
+                    meshName = canonical,
+                    vertexCount = keep.mesh.vertexCount,
+                    keepMesh = keep.mesh,
+                    keepAssetPath = keep.assetPath,
+                    keepRendererCount = keep.renderers.Count,
+                };
+
+                for (int i = 1; i < entries.Count; i++)
+                {
+                    group.duplicates.Add(new DuplicateAsset
+                    {
+                        mesh = entries[i].mesh,
+                        assetPath = entries[i].assetPath,
+                        renderers = entries[i].renderers,
+                    });
+                }
+
+                result.Add(group);
+            }
+
+            result.Sort((a, b) => string.Compare(a.meshName, b.meshName, System.StringComparison.Ordinal));
+            return result;
+        }
+
+        public static (int refsUpdated, int assetsDeleted) Consolidate(List<DuplicateLODGroup> groups)
+        {
+            int refsUpdated = 0;
+            int assetsDeleted = 0;
+
+            Undo.SetCurrentGroupName("LOD Mesh Consolidation");
+            int undoGroup = Undo.GetCurrentGroup();
+
+            foreach (var group in groups)
+            {
+                foreach (var dup in group.duplicates)
+                {
+                    foreach (var renderer in dup.renderers)
+                    {
+                        if (renderer == null) continue;
+
+                        var mf = renderer.GetComponent<MeshFilter>();
+                        if (mf != null && mf.sharedMesh == dup.mesh)
+                        {
+                            Undo.RecordObject(mf, "LOD Mesh Consolidation");
+                            mf.sharedMesh = group.keepMesh;
+                            refsUpdated++;
+                            continue;
+                        }
+
+                        if (renderer is SkinnedMeshRenderer smr && smr.sharedMesh == dup.mesh)
+                        {
+                            Undo.RecordObject(smr, "LOD Mesh Consolidation");
+                            smr.sharedMesh = group.keepMesh;
+                            refsUpdated++;
+                        }
+                    }
+
+                    if (!IsReferencedInScene(dup.mesh))
+                    {
+                        AssetDatabase.DeleteAsset(dup.assetPath);
+                        assetsDeleted++;
+                    }
+                }
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            AssetDatabase.SaveAssets();
+            return (refsUpdated, assetsDeleted);
+        }
+
+        /// <summary>
+        /// Finds LOD mesh assets in the project that no scene renderer references.
+        /// </summary>
+        public static List<OrphanedLODAsset> ScanOrphaned()
+        {
+            var referencedPaths = new HashSet<string>();
+            foreach (var mf in Object.FindObjectsOfType<MeshFilter>(true))
+            {
+                if (mf.sharedMesh != null)
+                {
+                    string p = AssetDatabase.GetAssetPath(mf.sharedMesh);
+                    if (!string.IsNullOrEmpty(p)) referencedPaths.Add(p);
+                }
+            }
+            foreach (var smr in Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
+            {
+                if (smr.sharedMesh != null)
+                {
+                    string p = AssetDatabase.GetAssetPath(smr.sharedMesh);
+                    if (!string.IsNullOrEmpty(p)) referencedPaths.Add(p);
+                }
+            }
+
+            var guids = AssetDatabase.FindAssets("_LOD t:Mesh");
+            var orphaned = new List<OrphanedLODAsset>();
+
+            for (int i = 0; i < guids.Length; i++)
+            {
+                if (i % 50 == 0)
+                {
+                    bool cancel = EditorUtility.DisplayCancelableProgressBar(
+                        "LOD Generator",
+                        string.Format("Scanning assets... ({0}/{1})", i, guids.Length),
+                        (float)i / guids.Length);
+                    if (cancel) break;
+                }
+
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (!path.EndsWith(".asset")) continue;
+                if (referencedPaths.Contains(path)) continue;
+
+                var mesh = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+                if (mesh == null) continue;
+                string canonicalName = GetCanonicalLODName(mesh, path);
+                if (canonicalName == null) continue;
+
+                orphaned.Add(new OrphanedLODAsset
+                {
+                    assetPath = path,
+                    meshName = canonicalName,
+                });
+            }
+
+            EditorUtility.ClearProgressBar();
+            orphaned.Sort((a, b) => string.Compare(a.assetPath, b.assetPath, System.StringComparison.Ordinal));
+            return orphaned;
+        }
+
+        public static int DeleteOrphaned(List<OrphanedLODAsset> orphaned)
+        {
+            int deleted = 0;
+            AssetDatabase.StartAssetEditing();
+            try
+            {
+                for (int i = 0; i < orphaned.Count; i++)
+                {
+                    if (AssetDatabase.DeleteAsset(orphaned[i].assetPath))
+                        deleted++;
+                }
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
+            AssetDatabase.Refresh();
+            return deleted;
+        }
+
+        private class ScanEntry
+        {
+            public Mesh mesh;
+            public string assetPath;
+            public List<Renderer> renderers = new List<Renderer>();
+        }
+
+        private static void Collect(
+            Dictionary<string, Dictionary<string, ScanEntry>> groupMap,
+            Mesh mesh, Renderer renderer)
+        {
+            if (mesh == null) return;
+            string assetPath = AssetDatabase.GetAssetPath(mesh);
+            string canonicalName = GetCanonicalLODName(mesh, assetPath);
+            if (canonicalName == null) return;
+
+            string key = canonicalName + "|" + mesh.vertexCount;
+
+            if (!groupMap.TryGetValue(key, out var assetMap))
+            {
+                assetMap = new Dictionary<string, ScanEntry>();
+                groupMap[key] = assetMap;
+            }
+
+            if (!assetMap.TryGetValue(assetPath, out var entry))
+            {
+                entry = new ScanEntry { mesh = mesh, assetPath = assetPath };
+                assetMap[assetPath] = entry;
+            }
+
+            entry.renderers.Add(renderer);
+        }
+
+        /// <summary>
+        /// LOD生成メッシュの正規名を返す。LODパターンに一致しなければ null。
+        /// mesh.name やファイル名に付く " N" サフィックス（GenerateUniqueAssetPath由来）を
+        /// 除去して判定する。
+        /// 例: mesh.name="BarasetD_LOD1 1" → stripped="BarasetD_LOD1" → 正規名として返す
+        /// </summary>
+        private static string GetCanonicalLODName(Mesh mesh, string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath) || !assetPath.EndsWith(".asset"))
+                return null;
+
+            if (MatchesLODPattern(mesh.name))
+                return mesh.name;
+
+            string stripped = StripUnitySuffix(mesh.name);
+            if (stripped != mesh.name && MatchesLODPattern(stripped))
+                return stripped;
+
+            string filename = Path.GetFileNameWithoutExtension(assetPath);
+            stripped = StripUnitySuffix(filename);
+            if (MatchesLODPattern(stripped))
+                return stripped;
+
+            return null;
+        }
+
+        /// <summary>" N" サフィックスを除去。"Foo_LOD1 3" → "Foo_LOD1"</summary>
+        private static string StripUnitySuffix(string name)
+        {
+            int spaceIdx = name.LastIndexOf(' ');
+            if (spaceIdx > 0 && int.TryParse(name.Substring(spaceIdx + 1), out _))
+                return name.Substring(0, spaceIdx);
+            return name;
+        }
+
+        private static bool MatchesLODPattern(string name)
+        {
+            int idx = name.LastIndexOf("_LOD");
+            if (idx < 0) return false;
+            return int.TryParse(name.Substring(idx + 4), out _);
+        }
+
+        private static bool IsReferencedInScene(Mesh mesh)
+        {
+            foreach (var mf in Object.FindObjectsOfType<MeshFilter>(true))
+                if (mf.sharedMesh == mesh) return true;
+            foreach (var smr in Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
+                if (smr.sharedMesh == mesh) return true;
+            return false;
+        }
+    }
+}
+

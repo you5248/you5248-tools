@@ -1,0 +1,27 @@
+{
+    "name": "you5248.Tools.Editor",
+    "rootNamespace": "",
+    "references": [
+        "you5248.Tools",
+        "VRC.SDKBase",
+        "VRC.SDK3",
+        "VRC.SDKBase.Editor",
+        "VRC.SDK3.Editor",
+        "VRC.SDKBase.Editor.BuildPipeline",
+        "VRC.Udon",
+        "UdonSharp.Runtime",
+        "UdonSharp.Editor",
+        "Unity.Postprocessing.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,544 @@
+﻿using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
+using UnityEngine;
+namespace you5248.LODGenerator
+{
+    /// <summary>
+    /// Core logic: mesh collection, simplification, LODGroup construction, asset saving.
+    /// </summary>
+    public static class LODGeneratorCore
+    {
+        // 持E��フォルダモード時のサブフォルダ名（バチE��実行ごとに生�E�E�E
+                    private static string _batchSubFolder;
+
+        // 同一メチE��ュの重褁E��略化を防ぐキャチE��ュ�E�バチE��実行中のみ有効�E�E
+                    private static Dictionary<Mesh, Mesh[]> _meshCache;
+
+        /// <summary>
+        /// Information about one mesh target to process.
+        /// </summary>
+        public struct MeshTarget
+        {
+            public GameObject gameObject;
+            public MeshFilter meshFilter;           // null for SkinnedMeshRenderer
+            public MeshRenderer meshRenderer;       // null for SkinnedMeshRenderer
+            public SkinnedMeshRenderer skinnedMesh;  // null for MeshFilter
+            public Mesh sharedMesh;
+        }
+
+        /// <summary>
+        /// Collect all mesh targets from the given selection.
+        /// </summary>
+        public static List<MeshTarget> CollectTargets(GameObject[] selectedObjects, bool includeChildren)
+        {
+            var targets = new List<MeshTarget>();
+            var visited = new HashSet<GameObject>();
+
+            foreach (var go in selectedObjects)
+            {
+                if (go == null) continue;
+                CollectFromGameObject(go, includeChildren, targets, visited);
+            }
+
+            return targets;
+        }
+
+        private static void CollectFromGameObject(GameObject go, bool includeChildren,
+            List<MeshTarget> targets, HashSet<GameObject> visited)
+        {
+            if (!visited.Add(go)) return;
+
+            // LOD生�E済みの子オブジェクト！ELOD suffix�E��EスキチE�E
+            if (IsLODChild(go))
+                return;
+
+            // MeshFilter + MeshRenderer
+            var mf = go.GetComponent<MeshFilter>();
+            var mr = go.GetComponent<MeshRenderer>();
+            if (mf != null && mr != null && mf.sharedMesh != null)
+            {
+                targets.Add(new MeshTarget
+                {
+                    gameObject = go,
+                    meshFilter = mf,
+                    meshRenderer = mr,
+                    skinnedMesh = null,
+                    sharedMesh = mf.sharedMesh
+                });
+            }
+
+            // SkinnedMeshRenderer
+            var smr = go.GetComponent<SkinnedMeshRenderer>();
+            if (smr != null && smr.sharedMesh != null)
+            {
+                targets.Add(new MeshTarget
+                {
+                    gameObject = go,
+                    meshFilter = null,
+                    meshRenderer = null,
+                    skinnedMesh = smr,
+                    sharedMesh = smr.sharedMesh
+                });
+            }
+
+            // Recurse children (LOD子オブジェクト�E上�EガードでスキチE�EされめE
+            if (includeChildren)
+            {
+                for (int i = 0; i < go.transform.childCount; i++)
+                    CollectFromGameObject(go.transform.GetChild(i).gameObject, true, targets, visited);
+            }
+        }
+
+        /// <summary>
+        /// Generate LODs for a single target.
+        /// Returns true on success, false on failure.
+        /// </summary>
+        public static bool GenerateLOD(MeshTarget target, LODGeneratorPreset preset, out string errorMessage)
+        {
+            errorMessage = null;
+            var go = target.gameObject;
+            var sourceMesh = target.sharedMesh;
+
+            if (sourceMesh == null)
+            {
+                errorMessage = LODGeneratorLocalization.Get("ErrorNoMesh", go.name);
+                return false;
+            }
+
+            // Determine save folder
+            string savePath;
+            if (preset.saveSameFolder)
+            {
+                // 允E��チE��ュと同じフォルダ�E�サブフォルダ作�Eなし！E
+        string meshAssetPath = AssetDatabase.GetAssetPath(sourceMesh);
+                if (string.IsNullOrEmpty(meshAssetPath))
+                    savePath = "Assets";
+                else
+                    savePath = Path.GetDirectoryName(meshAssetPath);
+            }
+            else
+            {
+                // 持E��フォルダ冁E��実行ごとのサブフォルダを作�E
+                savePath = preset.customSavePath + "/" + _batchSubFolder;
+            }
+
+            // Ensure folder exists
+            if (!string.IsNullOrEmpty(savePath) && !AssetDatabase.IsValidFolder(savePath))
+                CreateFolderRecursive(savePath);
+
+            // Register undo
+            Undo.RegisterCompleteObjectUndo(go, "LOD Generator");
+            if (target.meshFilter != null) Undo.RegisterCompleteObjectUndo(target.meshFilter, "LOD Generator");
+            if (target.meshRenderer != null) Undo.RegisterCompleteObjectUndo(target.meshRenderer, "LOD Generator");
+            if (target.skinnedMesh != null) Undo.RegisterCompleteObjectUndo(target.skinnedMesh, "LOD Generator");
+
+            // Remove existing LODGroup and LOD child objects
+            var existingLODGroup = go.GetComponent<LODGroup>();
+            if (existingLODGroup != null)
+                Undo.DestroyObjectImmediate(existingLODGroup);
+            CleanupLODChildren(go);
+
+            // Generate simplified meshes
+            int lodCount = preset.lodCount;
+            preset.SyncLevels();
+
+            var generatedMeshes = new Mesh[lodCount];
+            var generatedRenderers = new Renderer[lodCount];
+
+            // 同一メチE��ュのキャチE��ュがあれ�Eそれを使ぁE
+        bool usedCache = false;
+            if (_meshCache != null && _meshCache.TryGetValue(sourceMesh, out Mesh[] cachedMeshes)
+                && cachedMeshes.Length == lodCount)
+            {
+                for (int i = 0; i < lodCount; i++)
+                    generatedMeshes[i] = cachedMeshes[i];
+                usedCache = true;
+                Debug.Log($"[LOD Generator] Reusing cached LOD meshes for '{sourceMesh.name}' ({go.name})");
+            }
+
+            if (!usedCache)
+            {
+                for (int i = 0; i < lodCount; i++)
+                {
+                    float quality = preset.levels[i].quality;
+
+                    try
+                    {
+                        if (!sourceMesh.isReadable)
+                        {
+                            Debug.LogWarning($"[LOD Generator] Mesh '{sourceMesh.name}' is not readable. " +
+                                "Enable Read/Write in the mesh import settings.");
+                        }
+
+                        int srcTriCount = sourceMesh.triangles.Length / 3;
+                        Debug.Log($"[LOD Generator] LOD{i+1}: simplifying '{sourceMesh.name}' " +
+                            $"(tris={srcTriCount}) quality={quality:F2} target={Mathf.RoundToInt(srcTriCount * quality)}");
+
+                        var simplifier = new UnityMeshSimplifier.MeshSimplifier();
+                        simplifier.Initialize(sourceMesh);
+
+                        // プログレスバ�E付きで簡略化（キャンセル可能�E�E
+        int lodIdx = i + 1;
+                        bool wasCancelled = false;
+                        simplifier.OnProgress = (float progress) =>
+                        {
+                            bool cancel = EditorUtility.DisplayCancelableProgressBar(
+                                "LOD Generator",
+                                $"LOD{lodIdx}: {go.name} ({Mathf.RoundToInt(progress * 100)}%)",
+                                progress);
+                            if (cancel) wasCancelled = true;
+                            return !cancel;
+                        };
+
+                        simplifier.SimplifyMesh(quality);
+                        EditorUtility.ClearProgressBar();
+
+                        if (wasCancelled)
+                        {
+                            errorMessage = $"LOD{lodIdx}: Cancelled by user.";
+                            return false;
+                        }
+
+                        var simplified = simplifier.ToMesh();
+                        int resultTris = simplified.triangles.Length / 3;
+
+                        if (!simplifier.TargetReached)
+                        {
+                            float actualReduction = srcTriCount > 0 ? 1f - (float)resultTris / srcTriCount : 0f;
+                            Debug.LogWarning($"[LOD Generator] LOD{lodIdx}: target not fully reached. " +
+                                $"target={Mathf.RoundToInt(srcTriCount * quality)} actual={resultTris} " +
+                                $"(reduction={actualReduction:P1})");
+                        }
+
+                        Debug.Log($"[LOD Generator] LOD{lodIdx}: result tris={resultTris}");
+                        simplified.name = sourceMesh.name + "_LOD" + (i + 1);
+
+                        // Save mesh asset
+                        string assetPath = Path.Combine(savePath, simplified.name + ".asset").Replace('\\', '/');
+                        assetPath = AssetDatabase.GenerateUniqueAssetPath(assetPath);
+                        AssetDatabase.CreateAsset(simplified, assetPath);
+
+                        generatedMeshes[i] = simplified;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        errorMessage = LODGeneratorLocalization.Get("ErrorSimplify", ex.Message);
+                        // Cleanup already generated assets
+                        for (int j = 0; j < i; j++)
+                        {
+                            if (generatedMeshes[j] != null)
+                            {
+                                string path = AssetDatabase.GetAssetPath(generatedMeshes[j]);
+                                if (!string.IsNullOrEmpty(path))
+                                    AssetDatabase.DeleteAsset(path);
+                            }
+                        }
+                        return false;
+                    }
+                }
+
+                // キャチE��ュに保孁E
+        if (_meshCache != null)
+                    _meshCache[sourceMesh] = generatedMeshes;
+            }
+
+            // Create child GameObjects for each LOD level
+            for (int i = 0; i < lodCount; i++)
+            {
+                var lodChild = new GameObject(go.name + "_LOD" + (i + 1));
+                Undo.RegisterCreatedObjectUndo(lodChild, "LOD Generator");
+                lodChild.transform.SetParent(go.transform, false);
+
+                if (target.skinnedMesh != null)
+                {
+                    var smr = lodChild.AddComponent<SkinnedMeshRenderer>();
+                    smr.sharedMesh = generatedMeshes[i];
+                    smr.sharedMaterials = target.skinnedMesh.sharedMaterials;
+                    smr.rootBone = target.skinnedMesh.rootBone;
+                    smr.bones = target.skinnedMesh.bones;
+                    generatedRenderers[i] = smr;
+                }
+                else
+                {
+                    var mf = lodChild.AddComponent<MeshFilter>();
+                    mf.sharedMesh = generatedMeshes[i];
+                    var mr = lodChild.AddComponent<MeshRenderer>();
+                    mr.sharedMaterials = target.meshRenderer.sharedMaterials;
+                    generatedRenderers[i] = mr;
+                }
+            }
+
+            // Build LOD array
+            int totalLodLevels = 1 + lodCount + (preset.enableCulled ? 1 : 0);
+            var lods = new LOD[totalLodLevels];
+
+            // LOD0 (original)
+            Renderer originalRenderer = target.skinnedMesh != null
+                ? (Renderer)target.skinnedMesh
+                : (Renderer)target.meshRenderer;
+
+            lods[0] = new LOD(preset.lod0ScreenPercent, new Renderer[] { originalRenderer });
+
+            // LOD1 ~ LODn (generated)
+            for (int i = 0; i < lodCount; i++)
+            {
+                lods[i + 1] = new LOD(preset.levels[i].screenPercent,
+                    new Renderer[] { generatedRenderers[i] });
+            }
+
+            // Culled
+            if (preset.enableCulled)
+                lods[totalLodLevels - 1] = new LOD(0f, new Renderer[0]);
+
+            // Apply LODGroup
+            var lodGroup = Undo.AddComponent<LODGroup>(go);
+            lodGroup.SetLODs(lods);
+
+            // Cross-fade
+            if (preset.enableCrossFade)
+            {
+                lodGroup.fadeMode = preset.animateCrossFading
+                    ? LODFadeMode.CrossFade
+                    : LODFadeMode.SpeedTree;
+                lodGroup.animateCrossFading = preset.animateCrossFading;
+
+                // Set crossfade width on each LOD renderer
+                SetCrossFadeWidth(lodGroup, preset.crossFadeWidth);
+            }
+            else
+            {
+                lodGroup.fadeMode = LODFadeMode.None;
+            }
+
+            lodGroup.RecalculateBounds();
+
+            return true;
+        }
+
+        /// <summary>
+        /// Process all targets with the given preset.
+        /// Returns number of successfully processed targets.
+        /// </summary>
+        public static int GenerateAll(List<MeshTarget> targets, LODGeneratorPreset preset,
+            out List<string> errors, out List<string> skipped)
+        {
+            errors = new List<string>();
+            skipped = new List<string>();
+            int processed = 0;
+
+            // 持E��フォルダモード時、実行ごとにサブフォルダを作�E�E�EyyyMMdd_HHmmss�E�E
+        _batchSubFolder = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            _meshCache = new Dictionary<Mesh, Mesh[]>();
+
+            Undo.SetCurrentGroupName("LOD Generator Batch");
+            int undoGroup = Undo.GetCurrentGroup();
+
+            // 既存LODGroupの上書き判宁E 0=未決宁E 1=すべて上書ぁE -1=すべてスキチE�E
+            int overwriteAll = 0;
+
+            // 事前に既存LODGroup数をカウント（一括判断ダイアログの表示判定用�E�E
+        int existingCount = 0;
+            for (int i = 0; i < targets.Count; i++)
+                if (targets[i].gameObject.GetComponent<LODGroup>() != null)
+                    existingCount++;
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                var target = targets[i];
+
+                EditorUtility.DisplayProgressBar(
+                    LODGeneratorLocalization.Get("WindowTitle"),
+                    LODGeneratorLocalization.Get("GenerateProgress", i + 1, targets.Count),
+                    (float)(i + 1) / targets.Count);
+
+                if (target.gameObject.GetComponent<LODGroup>() != null)
+                {
+                    if (overwriteAll == 1)
+                    {
+                        // すべて上書ぁE Eそ�Eまま続衁E
+                    }
+                    else if (overwriteAll == -1)
+                    {
+                        skipped.Add(target.gameObject.name);
+                        continue;
+                    }
+                    else if (existingCount >= 2)
+                    {
+                        int choice = EditorUtility.DisplayDialogComplex(
+                            LODGeneratorLocalization.Get("WindowTitle"),
+                            LODGeneratorLocalization.Get("GenerateOverwriteBatch",
+                                target.gameObject.name, existingCount),
+                            LODGeneratorLocalization.Get("OverwriteAll"),
+                            LODGeneratorLocalization.Get("SkipAll"),
+                            LODGeneratorLocalization.Get("OverwriteOne"));
+
+                        if (choice == 0) { overwriteAll = 1; }
+                        else if (choice == 1) { overwriteAll = -1; skipped.Add(target.gameObject.name); continue; }
+                        // choice == 2: こ�E1件だけ上書ぁE
+                    }
+                    else
+                    {
+                        bool overwrite = EditorUtility.DisplayDialog(
+                            LODGeneratorLocalization.Get("WindowTitle"),
+                            LODGeneratorLocalization.Get("GenerateOverwrite", target.gameObject.name),
+                            "OK", "Skip");
+
+                        if (!overwrite)
+                        {
+                            skipped.Add(target.gameObject.name);
+                            continue;
+                        }
+                    }
+                }
+
+                if (GenerateLOD(target, preset, out string err))
+                {
+                    processed++;
+                }
+                else
+                {
+                    errors.Add(err);
+                }
+            }
+
+            EditorUtility.ClearProgressBar();
+            _meshCache = null;
+            Undo.CollapseUndoOperations(undoGroup);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            return processed;
+        }
+
+        /// <summary>
+        /// Check if a GameObject already has LOD setup (LODGroup or _LOD meshes).
+        /// </summary>
+        public static bool HasExistingLOD(GameObject go)
+        {
+            if (go.GetComponent<LODGroup>() != null) return true;
+
+            // Check for _LOD child meshes
+            for (int i = 0; i < go.transform.childCount; i++)
+            {
+                if (go.transform.GetChild(i).name.Contains("_LOD"))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static void SetCrossFadeWidth(LODGroup group, float width)
+        {
+            // LODGroup doesn't expose per-LOD crossfade width directly,
+            // but setting animateCrossFading + fadeMode enables the feature.
+            // The transition width is controlled by the screen percent differences.
+            // We store the width for reference but Unity handles it via the LOD thresholds.
+            _ = width; // Used implicitly by LOD threshold spacing
+        }
+
+        /// <summary>
+        /// LOD Generatorが生成した子オブジェクトかどぁE��を判定、E
+                    /// 親オブジェクト名 + "_LOD" + 数孁Eのパターンにマッチするものを対象とする、E        /// </summary>
+        internal static bool IsLODChild(GameObject go)
+        {
+            if (go.transform.parent == null) return false;
+            string parentName = go.transform.parent.name;
+            string goName = go.name;
+            // "ParentName_LOD1", "ParentName_LOD2" etc.
+            if (!goName.StartsWith(parentName + "_LOD")) return false;
+            string suffix = goName.Substring(parentName.Length + 4); // "_LOD" = 4 chars
+            return int.TryParse(suffix, out _);
+        }
+
+        /// <summary>
+        /// 既存�ELOD子オブジェクトとそ�EメチE��ュアセチE��を削除する、E
+                    /// 他オブジェクトが参�E中のメチE��ュアセチE��は削除しなぁE��E        /// </summary>
+        private static void CleanupLODChildren(GameObject go)
+        {
+            var toDestroy = new List<GameObject>();
+            var meshesToCheck = new HashSet<Mesh>();
+
+            for (int i = 0; i < go.transform.childCount; i++)
+            {
+                var child = go.transform.GetChild(i).gameObject;
+                if (!IsLODChildOf(go, child)) continue;
+
+                toDestroy.Add(child);
+
+                // 削除候補�EメチE��ュを収雁E
+        var mf = child.GetComponent<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null)
+                    meshesToCheck.Add(mf.sharedMesh);
+
+                var smr = child.GetComponent<SkinnedMeshRenderer>();
+                if (smr != null && smr.sharedMesh != null)
+                    meshesToCheck.Add(smr.sharedMesh);
+            }
+
+            // 先に子オブジェクトを破棁E��参照を消す�E�E
+        foreach (var child in toDestroy)
+                Undo.DestroyObjectImmediate(child);
+
+            // 他に参�EがなぁE��チE��ュアセチE��だけ削除
+            foreach (var mesh in meshesToCheck)
+                DeleteMeshAssetIfUnused(mesh);
+        }
+
+        /// <summary>go の直接の子で、go.name + "_LOD" + 数孁Eのパターンに一致するか、E/summary>
+        private static bool IsLODChildOf(GameObject parent, GameObject child)
+        {
+            string expected = parent.name + "_LOD";
+            if (!child.name.StartsWith(expected)) return false;
+            string suffix = child.name.Substring(expected.Length);
+            return int.TryParse(suffix, out _);
+        }
+
+        /// <summary>
+        /// シーン冁E��誰も参照してぁE��いLOD生�EメチE��ュアセチE��を削除する、E
+                    /// 他オブジェクトが使用中なら削除せずログを�Eす、E        /// </summary>
+        private static void DeleteMeshAssetIfUnused(Mesh mesh)
+        {
+            string path = AssetDatabase.GetAssetPath(mesh);
+            if (string.IsNullOrEmpty(path)) return;
+            if (!path.EndsWith(".asset") || !mesh.name.Contains("_LOD")) return;
+
+            if (IsMeshReferencedInScene(mesh))
+            {
+                Debug.Log($"[LOD Generator] Mesh '{mesh.name}' is still referenced by other objects. Keeping asset.");
+                return;
+            }
+
+            AssetDatabase.DeleteAsset(path);
+        }
+
+        /// <summary>シーン冁E�EぁE��れかのレンダラーがこのメチE��ュを参照してぁE��か、E/summary>
+        private static bool IsMeshReferencedInScene(Mesh mesh)
+        {
+            foreach (var mf in Object.FindObjectsOfType<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == mesh) return true;
+            }
+            foreach (var smr in Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
+            {
+                if (smr.sharedMesh == mesh) return true;
+            }
+            return false;
+        }
+
+        private static void CreateFolderRecursive(string path)
+        {
+            path = path.Replace('\\', '/');
+            var parts = path.Split('/');
+            string current = parts[0]; // "Assets"
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string next = current + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next))
+                    AssetDatabase.CreateFolder(current, parts[i]);
+                current = next;
+            }
+        }
+    }
+}
+

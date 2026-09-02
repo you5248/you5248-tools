@@ -1,0 +1,14 @@
+{
+  "name": "com.you5248.tools",
+  "displayName": "you5248 Tools",
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "description": "VRChatワールド制作用の自作ツール群。LOD生成、メッシュ結合・アトラス化、Quest移植支援、オブジェクトペインタ、シーン→プレハブ一括化などのエディタツールと、自動ドア・ピックアップキット・シームレスループテレポート等のUdonギミックを含む。",
+  "vrchatVersion": "2022.3.22f1",
+  "vpmDependencies": {
+    "com.you5248.dhk-shaders": "^1.4.1"
+  },
+  "author": {
+    "name": "you5248"
+  }
+}
