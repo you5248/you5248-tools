@@ -1,9 +1,9 @@
 {
   "name": "com.you5248.tools",
   "displayName": "you5248 Tools",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "unity": "2022.3",
-  "description": "VRChatワールド制作用ツール集。LOD生成、メッシュ結合・アトラス化、Quest移植支援、オブジェクトペインタ、シーン→プレハブ一括化などのエディタ拡張と、自動ドア・ピックアップキット・ループテレポート等のUdonギミック、植生・Quest向けシェーダー（Built-in RP用）を含む。",
+  "description": "VRChatワールド制作用ツール集。LOD生成、メッシュ結合・アトラス化、Quest移植支援、オブジェクトペインタ、シーン→プレハブ一括化、杭とロープの柵（Simple Rope Fence）などのエディタ拡張と、自動ドア・ピックアップキット・ループテレポート等のUdonギミック、植生・Quest向けシェーダー（Built-in RP用）を含む。",
   "license": "MIT",
   "url": "https://github.com/you5248/you5248-tools",
   "vpmDependencies": {

@@ -35,6 +35,7 @@ VRChatワールド制作用のエディタ拡張・Udonギミック・シェー�
 | Pickup Kit | `you5248/Pickup Kit` | ピックアップの一括設定。詳細は [Runtime/PickupKit/README.md](Runtime/PickupKit/README.md) |
 | Quest Port | `you5248/Quest Port Config` ほか | モバイル対応ビルド支援（下記の注意を参照） |
 | Bakery Converter | `you5248/Bakery Converter` | シーンのライトをBakery用に変換（下記の注意を参照） |
+| Simple Rope Fence | `you5248/Simple Rope Fence/...` | 木の杭としめ縄の柵を作る。杭を直接動かすとロープが追従（下記の使い方を参照） |
 
 このほか同じ `you5248` メニューに Recovery（Mesh Array Combiner の復旧用）や Quest Port の個別コマンドがある。
 各ツールの生成物は既定で `Assets/you5248/` 配下に出力される（フォルダは自動作成される）。
@@ -46,6 +47,26 @@ VRChatワールド制作用のエディタ拡張・Udonギミック・シェー�
 
 > **Bakery Converter の注意**: Bakery導入環境専用。Scripting Define Symbols に `BAKERY_INCLUDED` が
 > 定義されるまでメニューに現れない（定義されていない場合は Player Settings から手動で追加する）。
+
+### Simple Rope Fence（杭とロープの柵）の使い方
+
+穴あきの木の杭（地上 0.6m・φ100）に、太さ 32mm のしめ縄を通した柵をエディタ上で作る。実行時の処理は無く、
+ビルドに残るのは杭・ロープ・房の MeshRenderer だけ。
+
+1. 柵を立てたい場所が Scene ビューの中心に来るようにして、メニュー `you5248/Simple Rope Fence/新規作成（シーンビューの中心に）`。
+   カメラの横の向きに 5 本・6m の柵ができる。杭の足元は下にある Collider（地面）に合わせる。
+2. 「杭 01」などの杭を選び、Unity 標準の移動・回転ツールで動かす。手を離して 0.3 秒でロープが付いてくる。
+   杭の縦の軸の回りの向きは、穴がロープの向きになるよう自動で回る。手で傾けた分は残る。杭を Ctrl+D で複製すると 1 本増える。
+3. 柵（または杭）を選ぶとインスペクターの上に設定が出る。
+   杭の本数・全体の長さ（m）・たわみ（%）・ランダム性・ロープの太さ（mm）・杭の高さ（m）・杭の傾きの幅（度）・シード。
+4. ロープのメッシュは `Assets/you5248/SimpleRopeFence/Generated/` に保存される。柵を消した後に残ったメッシュは手で消してよい。
+
+注意:
+
+- 設定は柵の子の「設定 (EditorOnly)」（タグ EditorOnly）に置かれる。タグを外すと VRChat のビルドを止める。
+  確認はメニュー `you5248/Simple Rope Fence/ビルドに残らないか確かめる`。
+- 地面は Raycast で探すので、地面に Collider が要る。
+- 材質は dhk Standard（依存パッケージ）。同梱の材質を直接編集すると全部の柵に効く。変えたいときは複製して使う。
 
 ### Udonギミック（Runtime）
 
@@ -69,7 +90,7 @@ VRChatワールド制作用のエディタ拡張・Udonギミック・シェー�
 ## 依存関係
 
 - `com.vrchat.worlds` — VRChat Worlds SDK（VCCが解決する）
-- `com.you5248.dhk-shaders` — [dhk Shaders](https://github.com/you5248/dhk-shaders)（自動導入。Quest Portのマテリアル生成が使用）
+- `com.you5248.dhk-shaders` — [dhk Shaders](https://github.com/you5248/dhk-shaders)（自動導入。Quest Portのマテリアル生成と、Simple Rope Fence の同梱材質が使用）
 
 ## ライセンス
 

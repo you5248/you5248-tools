@@ -1,0 +1,124 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: SHIMENAWA_END_mat
+  m_Shader: {fileID: 4800000, guid: 0f1e2d3c4b5a697887960a5b4c3d2e1f, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords:
+  - _METALLICGLOSSMAP
+  - _NORMALMAP
+  - _OCCLUSIONMAP
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 1
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _BumpMap:
+        m_Texture: {fileID: 2800000, guid: 5acc559e0a2446e4cac08154c060b4ca, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DetailAlbedoMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DetailMask:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DetailMetallicGlossMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DetailNormalMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DetailOcclusionMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _EmissionMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: 10ea5e22a3de76a4e8f679371bfd963e, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MetallicGlossMap:
+        m_Texture: {fileID: 2800000, guid: 4580df5331b33d748a0d5d5818728b47, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _OcclusionMap:
+        m_Texture: {fileID: 2800000, guid: f1bde69fb84cd2b4184785b583901923, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AlphaTest: 0
+    - _BicubicLightmap: 1
+    - _BumpScale: 1
+    - _Cutoff: 0.5
+    - _DetailAlbedoBlend: 0
+    - _DetailAlbedoStrength: 1
+    - _DetailMSStrength: 1
+    - _DetailMaskStrength: 1
+    - _DetailNormalMapScale: 1
+    - _DetailOcclusionStrength: 1
+    - _DhkCull: 2
+    - _DhkRimIntensity: 2
+    - _DhkRimLightMask: 0
+    - _DhkRimPower: 4
+    - _DhkUseRim: 0
+    - _GlossMapScale: 1
+    - _Glossiness: 0.5
+    - _GlossyReflectionsOff: 0
+    - _GsaaThreshold: 0.18
+    - _GsaaVariance: 0.15
+    - _LMShadowMulStrength: 0
+    - _LVPointLightShading: 0
+    - _LVShadowFloor: 0.25
+    - _LVShadowMulStrength: 1
+    - _LVSpecularMul: 0
+    - _LightVolumeBias: 0
+    - _Metallic: 0
+    - _MonoSHNonlinear: 1
+    - _MonoSHSpecMul: 1
+    - _NightLightmapBlend: 0
+    - _NightLightmapSaturation: 1
+    - _OcclusionStrength: 1
+    - _PackedPreset: 0
+    - _SmoothnessIsRoughness: 0
+    - _SpecBoost: 1
+    - _SpecularHighlightsOff: 0
+    - _UseDetail: 0
+    - _UseEmission: 0
+    - _UseGSAA: 0
+    - _UseLightVolumes: 1
+    - _UseMetallicMap: 1
+    - _UseMonoSH: 0
+    - _UseMonoSHSpec: 0
+    - _UseNormalMap: 1
+    - _UseOcclusionMap: 1
+    m_Colors:
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _DhkRimColor: {r: 1, g: 1, b: 1, a: 1}
+    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _MetallicChannelMask: {r: 1, g: 0, b: 0, a: 0}
+    - _NightLightmapTint: {r: 1, g: 1, b: 1, a: 1}
+    - _OcclusionChannelMask: {r: 0, g: 0, b: 0, a: 0}
+    - _SmoothnessChannelMask: {r: 0, g: 0, b: 0, a: 1}
+  m_BuildTextureStacks: []
